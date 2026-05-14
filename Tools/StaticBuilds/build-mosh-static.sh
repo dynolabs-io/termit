@@ -19,8 +19,14 @@ WORK="$ROOT/Tools/StaticBuilds/work"
 
 mkdir -p "$OUT" "$WORK"
 
-if [ ! -d "$SRC/.git" ]; then
-  echo "Mosh submodule not present at $SRC — initialise with: git submodule update --init --recursive"
+if [ ! -e "$SRC/autogen.sh" ]; then
+  echo "Mosh submodule content not present at $SRC — running git submodule update --init --recursive"
+  (cd "$ROOT" && git submodule update --init --recursive ThirdParty/mosh)
+fi
+
+if [ ! -e "$SRC/autogen.sh" ]; then
+  echo "Mosh submodule still not present after init at $SRC" >&2
+  ls -la "$SRC" >&2 || true
   exit 1
 fi
 
