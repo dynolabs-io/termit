@@ -2,7 +2,7 @@
 # Build a statically linked mosh-server inside Alpine (musl).
 # Used by Tools/StaticBuilds/build-mosh-static.sh via `docker buildx build`.
 
-FROM alpine:3.20 AS builder
+FROM alpine:3.17 AS builder
 
 RUN apk add --no-cache \
       build-base \
@@ -13,10 +13,13 @@ RUN apk add --no-cache \
       protoc \
       openssl-dev \
       openssl-libs-static \
+      nettle-dev \
+      nettle-static \
       zlib-dev \
       zlib-static \
       ncurses-dev \
       ncurses-static \
+      gmp-dev \
       perl \
       bash \
       git
@@ -25,27 +28,45 @@ WORKDIR /src
 COPY mosh /src/mosh
 WORKDIR /src/mosh
 
-RUN ./autogen.sh
+RUN ./autogen.sh && echo "1.4.0-termit-static" > VERSION.stamp
 
 # Statically link everything we can. Mosh's configure honours LDFLAGS=-static
 # and the libs above ship .a archives.
-RUN CFLAGS="-static -O2" \
-    CXXFLAGS="-static -O2" \
-    LDFLAGS="-static -no-pie" \
+RUN CFLAGS="-O2" \
+    CXXFLAGS="-O2" \
+    ac_cv_func_gettimeofday=yes \
+    ac_cv_func_clock_gettime=yes \
       ./configure \
         --without-utempter \
         --disable-completion \
         --disable-dependency-tracking \
+        --with-crypto-library=nettle \
         --enable-static-libraries \
-        || ( cat config.log | tail -100 && false )
+        || ( cat config.log | tail -150 && false )
 
-RUN make -j"$(nproc)" -C src/network
-RUN make -j"$(nproc)" -C src/statesync
-RUN make -j"$(nproc)" -C src/terminal
-RUN make -j"$(nproc)" -C src/protobufs
-RUN make -j"$(nproc)" -C src/util
-RUN make -j"$(nproc)" -C src/crypto
-RUN make -j"$(nproc)" -C src/frontend mosh-server
+RUN make -j"$(nproc)" -C src/include && \
+    make -j"$(nproc)" -C src/protobufs && \
+    make -j"$(nproc)" -C src/crypto && \
+    make -j"$(nproc)" -C src/util && \
+    make -j"$(nproc)" -C src/network && \
+    make -j"$(nproc)" -C src/statesync && \
+    make -j"$(nproc)" -C src/terminal && \
+    make -C src/frontend mosh-server.o
+
+# Re-link mosh-server fully static, bypassing libtool's PIE+dynamic-interpreter default.
+# This yields a binary with no PT_INTERP, runnable on any Linux x86_64 / aarch64 host
+# regardless of libc flavor (glibc, musl, uclibc).
+RUN cd src/frontend && \
+    g++ -static -no-pie -o mosh-server \
+        mosh-server.o \
+        ../statesync/libmoshstatesync.a \
+        ../terminal/libmoshterminal.a \
+        ../network/libmoshnetwork.a \
+        ../crypto/libmoshcrypto.a \
+        ../protobufs/libmoshprotos.a \
+        ../util/libmoshutil.a \
+        -lprotobuf -lnettle -lhogweed -lgmp -lncursesw -lz \
+        -static-libstdc++ -static-libgcc
 
 RUN strip src/frontend/mosh-server && \
     file src/frontend/mosh-server && \
