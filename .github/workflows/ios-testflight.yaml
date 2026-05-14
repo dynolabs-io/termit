@@ -123,6 +123,17 @@ jobs:
         run: xcodegen generate
       - name: Resolve SPM dependencies
         run: xcodebuild -resolvePackageDependencies -project Termit.xcodeproj -scheme Termit || true
+      - name: Discover available iOS simulator
+        run: |
+          echo "Available iOS simulator runtimes:"
+          xcrun simctl list runtimes | grep iOS
+          echo "Available devices:"
+          xcrun simctl list devices available iOS
+          SIM_NAME=$(xcrun simctl list devices available iOS | grep -E "iPhone (16|15) Pro" | head -1 | sed -E 's/^ *([^(]*) \(.*$/\1/' | xargs)
+          SIM_OS=$(xcrun simctl list runtimes | grep -oE "iOS [0-9]+\.[0-9]+" | head -1 | awk '{print $2}')
+          echo "SIM_NAME=$SIM_NAME" >> $GITHUB_ENV
+          echo "SIM_OS=$SIM_OS" >> $GITHUB_ENV
+          echo "Selected: $SIM_NAME on iOS $SIM_OS"
       - name: Build app (for simulator install)
         run: |
           set -o pipefail
@@ -130,7 +141,7 @@ jobs:
             -project Termit.xcodeproj \
             -scheme Termit \
             -configuration Debug \
-            -destination "platform=iOS Simulator,name=${{ env.IOS_SIM_NAME }},OS=${{ env.IOS_SIM_OS }}" \
+            -destination "generic/platform=iOS Simulator" \
             -derivedDataPath build/ \
             CODE_SIGNING_ALLOWED=NO \
             build | xcpretty
@@ -141,16 +152,17 @@ jobs:
             -project Termit.xcodeproj \
             -scheme Termit \
             -configuration Debug \
-            -destination "platform=iOS Simulator,name=${{ env.IOS_SIM_NAME }},OS=${{ env.IOS_SIM_OS }}" \
+            -destination "platform=iOS Simulator,name=$SIM_NAME,OS=$SIM_OS" \
             -derivedDataPath build/ \
             CODE_SIGNING_ALLOWED=NO \
             build-for-testing | xcpretty
       - name: Run XCUITests
         run: |
+          set -o pipefail
           xcodebuild \
             -project Termit.xcodeproj \
             -scheme Termit \
-            -destination "platform=iOS Simulator,name=${{ env.IOS_SIM_NAME }},OS=${{ env.IOS_SIM_OS }}" \
+            -destination "platform=iOS Simulator,name=$SIM_NAME,OS=$SIM_OS" \
             -derivedDataPath build/ \
             CODE_SIGNING_ALLOWED=NO \
             test-without-building | xcpretty
@@ -160,7 +172,7 @@ jobs:
           echo "$HOME/.maestro/bin" >> $GITHUB_PATH
       - name: Boot simulator + install built app
         run: |
-          xcrun simctl boot "${{ env.IOS_SIM_NAME }}" || true
+          xcrun simctl boot "$SIM_NAME" || true
           APP_PATH=$(find build ~/Library/Developer/Xcode/DerivedData -name "Termit.app" -type d 2>/dev/null | grep -i "iphonesimulator" | head -1)
           if [ -z "$APP_PATH" ]; then
             echo "Termit.app not found. All .app under build/:"
