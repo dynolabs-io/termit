@@ -21,18 +21,12 @@ settings:
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
 
 packages:
-  SwiftNIOSSH:
-    url: https://github.com/apple/swift-nio-ssh.git
-    from: "0.10.0"
-  SwiftNIO:
-    url: https://github.com/apple/swift-nio.git
-    from: "2.65.0"
-  SwiftCrypto:
-    url: https://github.com/apple/swift-crypto.git
-    from: "3.4.0"
   Citadel:
     url: https://github.com/orlandos-nl/Citadel.git
     from: "0.7.0"
+  SwiftNIO:
+    url: https://github.com/apple/swift-nio.git
+    from: "2.65.0"
 
 targets:
   Termit:
@@ -87,14 +81,11 @@ targets:
           - CloudKit
         com.apple.developer.usernotifications.communication: true
     dependencies:
-      - package: SwiftNIOSSH
+      - package: Citadel
       - package: SwiftNIO
         product: NIOCore
       - package: SwiftNIO
         product: NIOPosix
-      - package: SwiftCrypto
-        product: Crypto
-      - package: Citadel
       - target: TermitWidgets
       - target: TermitWatchApp
       - target: TermitIntents
