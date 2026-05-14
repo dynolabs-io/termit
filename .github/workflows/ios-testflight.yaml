@@ -123,8 +123,20 @@ jobs:
         run: xcodegen generate
       - name: Resolve SPM dependencies
         run: xcodebuild -resolvePackageDependencies -project Termit.xcodeproj -scheme Termit || true
-      - name: Build for testing
+      - name: Build app (for simulator install)
         run: |
+          set -o pipefail
+          xcodebuild \
+            -project Termit.xcodeproj \
+            -scheme Termit \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,name=${{ env.IOS_SIM_NAME }},OS=${{ env.IOS_SIM_OS }}" \
+            -derivedDataPath build/ \
+            CODE_SIGNING_ALLOWED=NO \
+            build | xcpretty
+      - name: Build for testing (XCUITests)
+        run: |
+          set -o pipefail
           xcodebuild \
             -project Termit.xcodeproj \
             -scheme Termit \
@@ -149,10 +161,12 @@ jobs:
       - name: Boot simulator + install built app
         run: |
           xcrun simctl boot "${{ env.IOS_SIM_NAME }}" || true
-          APP_PATH=$(find build -name "Termit.app" -type d 2>/dev/null | grep -i "iphonesimulator" | head -1)
+          APP_PATH=$(find build ~/Library/Developer/Xcode/DerivedData -name "Termit.app" -type d 2>/dev/null | grep -i "iphonesimulator" | head -1)
           if [ -z "$APP_PATH" ]; then
-            echo "Termit.app not found under build/. Tree:"
-            find build -maxdepth 6 -name "*.app" 2>/dev/null | head -20
+            echo "Termit.app not found. All .app under build/:"
+            find build -name "*.app" -maxdepth 8 2>/dev/null
+            echo "All .app under DerivedData:"
+            find ~/Library/Developer/Xcode/DerivedData -name "*.app" -maxdepth 10 2>/dev/null | head
             exit 1
           fi
           echo "Installing $APP_PATH"
