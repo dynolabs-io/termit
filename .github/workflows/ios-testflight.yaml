@@ -18,9 +18,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  XCODE_VERSION: "15.4"
-  IOS_SIM_NAME: "iPhone 15 Pro"
-  IOS_SIM_OS: "17.5"
+  XCODE_VERSION: "16.2"
+  IOS_SIM_NAME: "iPhone 16 Pro"
+  IOS_SIM_OS: "18.2"
   BUNDLE_ID: "io.dynolabs.termit"
 
 jobs:
@@ -101,7 +101,7 @@ jobs:
 
   build-ios:
     name: Build iOS app
-    runs-on: macos-14
+    runs-on: macos-15
     needs: []
     steps:
       - uses: actions/checkout@v4
@@ -160,7 +160,7 @@ jobs:
 
   testflight-upload:
     name: Archive & upload to TestFlight
-    runs-on: macos-14
+    runs-on: macos-15
     needs: [build-ios, build-static-mosh-server, test-against-target-vps]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:

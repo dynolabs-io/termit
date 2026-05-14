@@ -5,7 +5,7 @@ options:
     iOS: "17.0"
     watchOS: "10.0"
   developmentLanguage: en
-  xcodeVersion: "15.4"
+  xcodeVersion: "16.0"
   groupSortPosition: top
   createIntermediateGroups: true
   generateEmptyDirectories: true
