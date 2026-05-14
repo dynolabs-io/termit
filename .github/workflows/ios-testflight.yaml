@@ -1,0 +1,204 @@
+name: iOS Build & TestFlight
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Sources/**'
+      - 'Tests/**'
+      - 'Resources/**'
+      - 'project.yml'
+      - '.github/workflows/ios-testflight.yaml'
+  workflow_dispatch:
+
+concurrency:
+  group: ios-testflight-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  XCODE_VERSION: "15.4"
+  IOS_SIM_NAME: "iPhone 15 Pro"
+  IOS_SIM_OS: "17.5"
+  BUNDLE_ID: "io.dynolabs.termit"
+
+jobs:
+  build-static-mosh-server:
+    name: Build static mosh-server binaries
+    runs-on: ubuntu-latest
+    outputs:
+      cache-hit: ${{ steps.cache.outputs.cache-hit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Cache mosh-server binaries
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: Resources/MoshServer
+          key: mosh-server-${{ hashFiles('ThirdParty/mosh/**', 'Tools/StaticBuilds/build-mosh-static.sh') }}
+      - name: Install zig + musl + build tools
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential autoconf automake protobuf-compiler libprotobuf-dev libutempter-dev libssl-dev zlib1g-dev musl-tools wget tar
+          wget -qO zig.tar.xz https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-linux-x86_64-0.13.0" >> $GITHUB_PATH
+      - name: Build static mosh-server binaries
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          chmod +x Tools/StaticBuilds/build-mosh-static.sh
+          ./Tools/StaticBuilds/build-mosh-static.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mosh-server-binaries
+          path: Resources/MoshServer/
+
+  test-against-target-vps:
+    name: Smoke-test mosh-server install on a fresh Ubuntu container
+    runs-on: ubuntu-latest
+    needs: build-static-mosh-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mosh-server-binaries
+          path: Resources/MoshServer/
+      - name: Test portable binary on ubuntu:24.04
+        run: |
+          docker run --rm -v "$PWD/Resources/MoshServer:/mosh" ubuntu:24.04 bash -c "
+            mkdir -p /root/.local/bin
+            cp /mosh/mosh-server-linux-x86_64 /root/.local/bin/mosh-server
+            chmod +x /root/.local/bin/mosh-server
+            /root/.local/bin/mosh-server --version | head -1
+          "
+      - name: Test sudo install path on ubuntu:24.04
+        run: |
+          docker run --rm ubuntu:24.04 bash -c "
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mosh
+            which mosh-server
+            mosh-server --version | head -1
+          "
+      - name: Test sudo install path on fedora:40
+        run: |
+          docker run --rm fedora:40 bash -c "
+            dnf install -y -q mosh
+            which mosh-server
+            mosh-server --version | head -1
+          "
+      - name: Test sudo install path on alpine:3.20
+        run: |
+          docker run --rm alpine:3.20 sh -c "
+            apk add --no-cache mosh
+            which mosh-server
+            mosh-server --version | head -1
+          "
+
+  build-ios:
+    name: Build iOS app
+    runs-on: macos-14
+    needs: build-static-mosh-server
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/download-artifact@v4
+        with:
+          name: mosh-server-binaries
+          path: Resources/MoshServer/
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_${{ env.XCODE_VERSION }}.app
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Resolve SPM dependencies
+        run: xcodebuild -resolvePackageDependencies -workspace Termit.xcworkspace -scheme Termit || xcodebuild -resolvePackageDependencies -project Termit.xcodeproj -scheme Termit
+      - name: Build for testing
+        run: |
+          xcodebuild \
+            -project Termit.xcodeproj \
+            -scheme Termit \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,name=${{ env.IOS_SIM_NAME }},OS=${{ env.IOS_SIM_OS }}" \
+            -derivedDataPath build/ \
+            CODE_SIGNING_ALLOWED=NO \
+            build-for-testing | xcpretty
+      - name: Run XCUITests
+        run: |
+          xcodebuild \
+            -project Termit.xcodeproj \
+            -scheme Termit \
+            -destination "platform=iOS Simulator,name=${{ env.IOS_SIM_NAME }},OS=${{ env.IOS_SIM_OS }}" \
+            -derivedDataPath build/ \
+            CODE_SIGNING_ALLOWED=NO \
+            test-without-building | xcpretty
+      - name: Install Maestro
+        run: |
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> $GITHUB_PATH
+      - name: Boot simulator + install built app
+        run: |
+          xcrun simctl boot "${{ env.IOS_SIM_NAME }}" || true
+          xcrun simctl install booted build/Build/Products/Debug-iphonesimulator/Termit.app
+      - name: Run Maestro E2E suite
+        env:
+          TEST_SSH_HOST: ${{ secrets.TEST_SSH_HOST }}
+          TEST_SSH_USER: ${{ secrets.TEST_SSH_USER }}
+          TEST_SSH_PRIVATE_KEY: ${{ secrets.TEST_SSH_PRIVATE_KEY }}
+        run: |
+          maestro test Tests/Maestro/
+
+  testflight-upload:
+    name: Archive & upload to TestFlight
+    runs-on: macos-14
+    needs: [build-ios, test-against-target-vps]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/download-artifact@v4
+        with:
+          name: mosh-server-binaries
+          path: Resources/MoshServer/
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_${{ env.XCODE_VERSION }}.app
+      - name: Install xcodegen + fastlane
+        run: |
+          brew install xcodegen
+          gem install fastlane --no-document
+      - name: Generate project
+        run: xcodegen generate
+      - name: Set up App Store Connect API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          printf '%s' "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+      - name: Fastlane match (sync certs/profiles)
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+        run: |
+          fastlane match appstore --readonly true --git_url "$MATCH_GIT_URL" || echo "match failed, falling back to automatic signing"
+      - name: Archive + upload
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          TERMIT_TEAM_ID: ${{ secrets.TERMIT_TEAM_ID }}
+        run: |
+          fastlane ios beta
+      - name: Assign build to internal beta group
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_BETA_GROUP_ID: ${{ secrets.ASC_BETA_GROUP_ID }}
+        run: |
+          # Per feedback_asc_204_trust_and_beta_group_assignment.md — 204 = success, do not re-poll
+          ./Tools/asc_assign_beta_group.sh "$ASC_BETA_GROUP_ID"

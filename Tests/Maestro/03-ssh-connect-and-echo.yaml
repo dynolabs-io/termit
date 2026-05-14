@@ -1,0 +1,16 @@
+appId: io.dynolabs.termit
+---
+- launchApp
+- tapOn: "ci-vps"
+- assertVisible: "Probing"
+    timeout: 15000
+- assertVisible:
+    text: "(Mosh|SSH)"
+    timeout: 60000
+- tapOn:
+    id: "terminal-input"
+- inputText: "echo hello-from-termit"
+- tapOn:
+    id: "send-return"
+- assertVisible: "hello-from-termit"
+    timeout: 10000

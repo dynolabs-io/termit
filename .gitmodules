@@ -1,0 +1,6 @@
+[submodule "ThirdParty/mosh"]
+	path = ThirdParty/mosh
+	url = https://github.com/mobile-shell/mosh.git
+[submodule "ThirdParty/blink-mosh"]
+	path = ThirdParty/blink-mosh
+	url = https://github.com/blinksh/blink.git

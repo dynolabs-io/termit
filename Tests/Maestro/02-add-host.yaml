@@ -1,0 +1,14 @@
+appId: io.dynolabs.termit
+---
+- launchApp
+- tapOn:
+    id: "plus"
+- assertVisible: "New Host"
+- tapOn: "Alias"
+- inputText: "ci-vps"
+- tapOn: "Hostname or IP"
+- inputText: "${TEST_SSH_HOST}"
+- tapOn: "Username"
+- inputText: "${TEST_SSH_USER}"
+- tapOn: "Save"
+- assertVisible: "ci-vps"

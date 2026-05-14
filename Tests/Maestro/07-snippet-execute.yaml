@@ -1,0 +1,18 @@
+appId: io.dynolabs.termit
+---
+- launchApp
+- tapOn: "Snippets"
+- tapOn:
+    id: "plus"
+- inputText: "uptime check"
+- tapOn:
+    id: "snippet-command-editor"
+- inputText: "uptime"
+- tapOn: "Save"
+- back
+- tapOn: "ci-vps"
+- assertVisible: "Mosh"
+    timeout: 60000
+- tapOn: "uptime check"
+- assertVisible: "load average"
+    timeout: 10000

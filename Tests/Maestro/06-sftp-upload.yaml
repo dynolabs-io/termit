@@ -1,0 +1,12 @@
+appId: io.dynolabs.termit
+---
+- launchApp
+- tapOn: "ci-vps"
+- assertVisible: "Mosh"
+    timeout: 60000
+- tapOn: "SFTP"
+- assertVisible:
+    id: "sftp-browser"
+- tapOn: "Upload"
+- assertVisible: "upload complete"
+    timeout: 30000

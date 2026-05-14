@@ -1,0 +1,16 @@
+appId: io.dynolabs.termit
+---
+- launchApp
+- tapOn: "ci-vps"
+- assertVisible: "mosh-server"
+    timeout: 30000
+- tapOn: "Drop portable binary (no sudo)"
+- assertVisible: "Mosh"
+    timeout: 60000
+- tapOn:
+    id: "terminal-input"
+- inputText: "uname -a"
+- tapOn:
+    id: "send-return"
+- assertVisible: "Linux"
+    timeout: 10000

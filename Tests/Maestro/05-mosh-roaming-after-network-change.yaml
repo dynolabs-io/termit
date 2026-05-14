@@ -1,0 +1,16 @@
+appId: io.dynolabs.termit
+---
+- launchApp
+- tapOn: "ci-vps"
+- assertVisible: "Mosh"
+    timeout: 60000
+- tapOn:
+    id: "terminal-input"
+- inputText: "sleep 30 && echo survived-the-network-bounce"
+- tapOn:
+    id: "send-return"
+# Simulator network toggle — verifies UDP roaming
+- runScript:
+    file: "scripts/toggle-simulator-network.sh"
+- assertVisible: "survived-the-network-bounce"
+    timeout: 90000

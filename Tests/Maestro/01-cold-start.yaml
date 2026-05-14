@@ -1,0 +1,6 @@
+appId: io.dynolabs.termit
+---
+- launchApp
+- assertVisible: "Termit"
+- assertVisible:
+    id: "plus"

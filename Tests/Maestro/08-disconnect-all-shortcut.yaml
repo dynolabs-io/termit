@@ -1,0 +1,13 @@
+appId: io.dynolabs.termit
+---
+- launchApp
+- tapOn: "ci-vps"
+- assertVisible: "Mosh"
+    timeout: 60000
+- runFlow:
+    when:
+      platform: ios
+    commands:
+      - openLink: "shortcuts://run-shortcut?name=Disconnect%20all%20in%20Termit"
+- launchApp
+- assertVisible: "Disconnected"

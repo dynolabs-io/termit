@@ -1,0 +1,7 @@
+# Static mosh-server binaries are produced by Tools/StaticBuilds/build-mosh-static.sh
+# in CI and bundled into the iOS app at archive time.
+# Output filenames:
+#   mosh-server-linux-x86_64
+#   mosh-server-linux-aarch64
+#   mosh-server-darwin-x86_64
+#   mosh-server-darwin-aarch64

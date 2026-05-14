@@ -1,0 +1,56 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcodeproj/
+*.xcworkspace/xcuserdata/
+*.xcworkspace/xcshareddata/swiftpm/Package.resolved
+xcuserdata/
+
+# Swift Package Manager
+.swiftpm/
+.build/
+Package.resolved
+
+# CocoaPods (not used but defensive)
+Pods/
+*.xcworkspace
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output/
+fastlane/.env*
+fastlane/report.json
+fastlane/AuthKey_*.p8
+
+# Generated Xcode project (regenerated from project.yml via xcodegen)
+Termit.xcodeproj/
+Termit.xcworkspace/
+
+# Static mosh-server build artifacts
+Tools/StaticBuilds/build/
+Tools/StaticBuilds/work/
+Resources/MoshServer/mosh-server-*
+
+# Vendored sources (submodules)
+ThirdParty/mosh/build/
+ThirdParty/blink-mosh/build/
+
+# OS
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log
+*.tmp
+
+# Secrets
+*.p8
+*.p12
+*.mobileprovision
+*.cer
+.env
+.env.local

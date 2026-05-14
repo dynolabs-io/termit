@@ -1,0 +1,3 @@
+app_identifier("io.dynolabs.termit")
+itc_team_id(ENV["ASC_ITC_TEAM_ID"])
+team_id(ENV["TERMIT_TEAM_ID"])
