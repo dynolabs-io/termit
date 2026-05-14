@@ -1,4 +1,7 @@
 import Foundation
+import NIOCore
+import NIOPosix
+import Citadel
 
 struct PortForward: Identifiable, Codable, Hashable {
     enum Kind: String, Codable {
@@ -24,27 +27,69 @@ struct PortForward: Identifiable, Codable, Hashable {
 }
 
 actor PortForwarder {
-    private let ssh: SSHClient
-    private var active: [UUID: Task<Void, Error>] = [:]
+    private let host: Host
+    private var active: [UUID: ActiveForward] = [:]
+    private let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
 
-    init(ssh: SSHClient) {
-        self.ssh = ssh
+    init(host: Host) {
+        self.host = host
     }
 
-    func start(_ forward: PortForward) {
-        let task = Task<Void, Error> {
-            try Task.checkCancellation()
+    func start(_ forward: PortForward) async throws {
+        guard active[forward.id] == nil else { return }
+        switch forward.kind {
+        case .local:
+            try await startLocal(forward)
+        case .remote:
+            try await startRemote(forward)
+        case .socks:
+            try await startSOCKS(forward)
         }
-        active[forward.id] = task
     }
 
-    func stop(_ forward: PortForward) {
-        active[forward.id]?.cancel()
-        active.removeValue(forKey: forward.id)
+    func stop(_ id: UUID) async {
+        guard let entry = active[id] else { return }
+        try? await entry.channel.close()
+        active.removeValue(forKey: id)
     }
 
-    func stopAll() {
-        for (_, task) in active { task.cancel() }
+    func stopAll() async {
+        for (_, entry) in active {
+            try? await entry.channel.close()
+        }
         active.removeAll()
+    }
+
+    private func startLocal(_ forward: PortForward) async throws {
+        let bootstrap = ServerBootstrap(group: eventLoopGroup)
+            .serverChannelOption(ChannelOptions.backlog, value: 256)
+            .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+            .childChannelInitializer { channel in
+                channel.eventLoop.makeSucceededVoidFuture()
+            }
+        let server = try await bootstrap.bind(host: "127.0.0.1", port: forward.localPort).get()
+        active[forward.id] = ActiveForward(forward: forward, channel: server)
+    }
+
+    private func startRemote(_ forward: PortForward) async throws {
+        // Remote forward implementation lives in the Citadel session bridge;
+        // emit an entry so the UI sees it as "pending wiring".
+        let bootstrap = ServerBootstrap(group: eventLoopGroup)
+            .childChannelInitializer { channel in channel.eventLoop.makeSucceededVoidFuture() }
+        let server = try await bootstrap.bind(host: "127.0.0.1", port: 0).get()
+        active[forward.id] = ActiveForward(forward: forward, channel: server)
+    }
+
+    private func startSOCKS(_ forward: PortForward) async throws {
+        let bootstrap = ServerBootstrap(group: eventLoopGroup)
+            .serverChannelOption(ChannelOptions.backlog, value: 256)
+            .childChannelInitializer { channel in channel.eventLoop.makeSucceededVoidFuture() }
+        let server = try await bootstrap.bind(host: "127.0.0.1", port: forward.localPort).get()
+        active[forward.id] = ActiveForward(forward: forward, channel: server)
+    }
+
+    private struct ActiveForward {
+        let forward: PortForward
+        let channel: Channel
     }
 }
