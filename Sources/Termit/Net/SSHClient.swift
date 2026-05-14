@@ -1,7 +1,6 @@
 import Foundation
 import Citadel
 import NIOCore
-import NIOSSH
 
 actor SSHClient {
     enum SSHError: Error {

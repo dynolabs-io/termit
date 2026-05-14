@@ -149,7 +149,14 @@ jobs:
       - name: Boot simulator + install built app
         run: |
           xcrun simctl boot "${{ env.IOS_SIM_NAME }}" || true
-          xcrun simctl install booted build/Build/Products/Debug-iphonesimulator/Termit.app
+          APP_PATH=$(find build -name "Termit.app" -type d 2>/dev/null | grep -i "iphonesimulator" | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Termit.app not found under build/. Tree:"
+            find build -maxdepth 6 -name "*.app" 2>/dev/null | head -20
+            exit 1
+          fi
+          echo "Installing $APP_PATH"
+          xcrun simctl install booted "$APP_PATH"
       - name: Run Maestro E2E suite
         env:
           TEST_SSH_HOST: ${{ secrets.TEST_SSH_HOST }}
