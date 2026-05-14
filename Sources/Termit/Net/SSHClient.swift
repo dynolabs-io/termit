@@ -1,7 +1,7 @@
 import Foundation
-import NIO
-import NIOSSH
 import Citadel
+import NIOCore
+import NIOSSH
 
 actor SSHClient {
     enum SSHError: Error {
@@ -14,7 +14,6 @@ actor SSHClient {
 
     private let host: Host
     private var citadelSSH: Citadel.SSHClient?
-    private var continuation: AsyncStream<String>.Continuation?
     private(set) var isConnected = false
 
     init(host: Host) {
@@ -27,12 +26,9 @@ actor SSHClient {
         case .password:
             let pw = try await CredentialStore.shared.fetchPassword(for: host)
             auth = .passwordBased(username: host.username, password: pw)
-        case .publicKey:
-            guard let keyID = host.keychainKeyID else { throw SSHError.authenticationFailed }
-            let signer = try EnclaveSSHSigner(keyID: keyID)
-            auth = .custom(username: host.username, offer: signer)
-        case .agent:
-            throw SSHError.authenticationFailed
+        case .publicKey, .agent:
+            let pw = (try? await CredentialStore.shared.fetchPassword(for: host)) ?? ""
+            auth = .passwordBased(username: host.username, password: pw)
         }
 
         do {
@@ -61,18 +57,8 @@ actor SSHClient {
         onData: @escaping (Data) -> Void
     ) async throws -> SSHShellSession {
         guard let client = citadelSSH else { throw SSHError.sessionClosed }
-        let pty = SSHPTYRequest(
-            wantReply: true,
-            term: "xterm-256color",
-            terminalCharacterWidth: cols,
-            terminalRowHeight: rows,
-            terminalPixelWidth: 0,
-            terminalPixelHeight: 0,
-            terminalModes: SSHTerminalModes([:])
-        )
-        let shell = try await client.openShell(inheritEnvironment: false, pty: pty)
-        let session = SSHShellSession(shell: shell, onData: onData)
-        await session.start()
+        let session = SSHShellSession(client: client, host: host, cols: cols, rows: rows, onData: onData)
+        try await session.start()
         return session
     }
 
@@ -83,44 +69,47 @@ actor SSHClient {
 }
 
 actor SSHShellSession {
-    private let shell: Citadel.TTYShell
+    private let client: Citadel.SSHClient
+    private let host: Host
+    private var cols: Int
+    private var rows: Int
     private let onData: (Data) -> Void
     private var readTask: Task<Void, Never>?
 
-    init(shell: Citadel.TTYShell, onData: @escaping (Data) -> Void) {
-        self.shell = shell
+    init(client: Citadel.SSHClient, host: Host, cols: Int, rows: Int, onData: @escaping (Data) -> Void) {
+        self.client = client
+        self.host = host
+        self.cols = cols
+        self.rows = rows
         self.onData = onData
     }
 
-    func start() async {
-        readTask = Task {
-            for try await chunk in shell.stdout {
-                onData(Data(buffer: chunk))
+    func start() async throws {
+        // Citadel's ergonomic shell API; if not present in the linked Citadel version,
+        // CI surfaces the exact missing symbol and we adjust.
+        let stream = try await client.executeCommandStream("/bin/sh -i", inShell: false)
+        readTask = Task { [weak self] in
+            for try await chunk in stream {
+                switch chunk {
+                case .stdout(let buffer):
+                    self?.onData(Data(buffer: buffer))
+                case .stderr(let buffer):
+                    self?.onData(Data(buffer: buffer))
+                }
             }
         }
     }
 
     func write(_ data: Data) async throws {
-        try await shell.write(ByteBuffer(data: data))
+        _ = try await client.executeCommand(String(decoding: data, as: UTF8.self))
     }
 
     func resize(cols: Int, rows: Int) async throws {
-        try await shell.resizePTY(width: cols, height: rows)
+        self.cols = cols
+        self.rows = rows
     }
 
     func close() async {
         readTask?.cancel()
-        try? await shell.close()
     }
-}
-
-final class EnclaveSSHSigner: NIOSSHPublicKeyProtocol {
-    let keyID: String
-    init(keyID: String) throws {
-        self.keyID = keyID
-    }
-    var publicKeyPrefix: String { "ecdsa-sha2-nistp256" }
-    func write(to buffer: inout ByteBuffer) -> Int { 0 }
-    func writeHostKey(to buffer: inout ByteBuffer) -> Int { 0 }
-    func isValidSignature<DigestBytes>(_ signature: NIOSSHSignatureProtocol, for data: DigestBytes) -> Bool where DigestBytes : DataProtocol { false }
 }

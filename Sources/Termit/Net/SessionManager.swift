@@ -129,7 +129,8 @@ final class ActiveSession: ObservableObject, Identifiable {
     private func startInteractiveSSH() async throws {
         guard let ssh = ssh else { return }
         let shell = try await ssh.startInteractiveShell(cols: 80, rows: 24) { [weak self] data in
-            Task { @MainActor in self?.appendTranscript(data) }
+            let captured = data
+            Task { @MainActor in self?.appendTranscript(captured) }
         }
         self.shell = shell
     }
