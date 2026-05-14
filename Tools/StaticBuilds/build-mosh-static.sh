@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
-# Build statically linked mosh-server binaries for the four arches Termit bundles.
+# Build statically linked mosh-server binaries via docker buildx (Alpine/musl).
 #
-#   linux-x86_64    musl static via zig cc
-#   linux-aarch64   musl static via zig cc
-#   darwin-x86_64   normally builds only on macOS (CI matrix runs this on a macOS runner)
-#   darwin-aarch64  same
+#   linux-x86_64    docker buildx --platform linux/amd64
+#   linux-aarch64   docker buildx --platform linux/arm64
+#   darwin-x86_64   only builds on macOS runners
+#   darwin-aarch64  only builds on macOS runners
 #
 # Output: Resources/MoshServer/mosh-server-<os>-<arch>
-#
-# This script is invoked by .github/workflows/ios-testflight.yaml.
 
 set -euo pipefail
 
@@ -16,6 +14,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="$ROOT/Resources/MoshServer"
 SRC="$ROOT/ThirdParty/mosh"
 WORK="$ROOT/Tools/StaticBuilds/work"
+DOCKERFILE="$ROOT/Tools/StaticBuilds/Dockerfile.alpine-mosh"
 
 mkdir -p "$OUT" "$WORK"
 
@@ -30,42 +29,49 @@ if [ ! -e "$SRC/autogen.sh" ]; then
   exit 1
 fi
 
-build_linux() {
-  local arch="$1"
-  local zigtarget
-  case "$arch" in
-    x86_64) zigtarget="x86_64-linux-musl" ;;
-    aarch64) zigtarget="aarch64-linux-musl" ;;
-    *) echo "unknown arch $arch" >&2; exit 1 ;;
-  esac
+build_linux_via_docker() {
+  local platform="$1"
+  local arch_out="$2"
 
-  local workdir="$WORK/linux-$arch"
-  rm -rf "$workdir"
-  cp -R "$SRC" "$workdir"
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "docker not present — skipping $arch_out"
+    return
+  fi
 
-  pushd "$workdir" > /dev/null
-  ./autogen.sh
-  CC="zig cc -target $zigtarget" \
-  CXX="zig c++ -target $zigtarget" \
-  LDFLAGS="-static" \
-    ./configure \
-      --disable-shared \
-      --without-utempter \
-      --disable-completion \
-      --disable-dependency-tracking \
-      --host="$arch-linux-musl"
-  make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" -C src/network
-  make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" -C src/statesync
-  make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" -C src/terminal
-  make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" -C src/frontend mosh-server
-  cp src/frontend/mosh-server "$OUT/mosh-server-linux-$arch"
-  strip "$OUT/mosh-server-linux-$arch" || true
-  popd > /dev/null
+  # Ensure buildx is available
+  docker buildx version >/dev/null 2>&1 || {
+    echo "docker buildx not available — skipping $arch_out"
+    return
+  }
 
-  echo "Built $OUT/mosh-server-linux-$arch ($(du -h "$OUT/mosh-server-linux-$arch" | cut -f1))"
+  # buildx must use a builder that supports --platform
+  if ! docker buildx ls 2>/dev/null | grep -q termit-multiarch; then
+    docker buildx create --name termit-multiarch --use >/dev/null
+    docker buildx inspect --bootstrap >/dev/null
+  else
+    docker buildx use termit-multiarch >/dev/null
+  fi
+
+  # Stage mosh source as a sibling of the Dockerfile so the context is small
+  local ctx="$WORK/ctx-$arch_out"
+  rm -rf "$ctx"
+  mkdir -p "$ctx"
+  cp "$DOCKERFILE" "$ctx/Dockerfile"
+  cp -R "$SRC" "$ctx/mosh"
+  # The mosh git directory is huge and unused for compilation
+  rm -rf "$ctx/mosh/.git" "$ctx/mosh/.github"
+
+  docker buildx build \
+    --platform "$platform" \
+    --output "type=local,dest=$WORK/out-$arch_out" \
+    "$ctx"
+
+  cp "$WORK/out-$arch_out/mosh-server" "$OUT/mosh-server-$arch_out"
+  chmod +x "$OUT/mosh-server-$arch_out"
+  echo "Built $OUT/mosh-server-$arch_out ($(du -h "$OUT/mosh-server-$arch_out" | cut -f1))"
 }
 
-build_darwin() {
+build_darwin_native() {
   if [ "$(uname -s)" != "Darwin" ]; then
     echo "Darwin build requires a macOS host; skipping."
     return
@@ -85,10 +91,13 @@ build_darwin() {
   popd > /dev/null
 }
 
-build_linux x86_64
-build_linux aarch64
-build_darwin x86_64 || true
-build_darwin aarch64 || true
+build_linux_via_docker linux/amd64 linux-x86_64
+build_linux_via_docker linux/arm64 linux-aarch64
+
+if [ "$(uname -s)" = "Darwin" ]; then
+  build_darwin_native x86_64 || true
+  build_darwin_native arm64 || true
+fi
 
 echo "All available static mosh-server binaries:"
-ls -lh "$OUT"
+ls -lh "$OUT" || true

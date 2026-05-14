@@ -40,15 +40,12 @@ jobs:
         with:
           path: Resources/MoshServer
           key: mosh-server-${{ hashFiles('ThirdParty/mosh/**', 'Tools/StaticBuilds/build-mosh-static.sh') }}
-      - name: Install zig + build tools
+      - name: Set up QEMU for multi-arch docker buildx
         if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential autoconf automake pkg-config \
-            protobuf-compiler libprotobuf-dev libssl-dev zlib1g-dev wget tar xz-utils
-          wget -qO zig.tar.xz https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
-          tar -xf zig.tar.xz
-          echo "$PWD/zig-linux-x86_64-0.13.0" >> $GITHUB_PATH
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: docker/setup-buildx-action@v3
       - name: Build static mosh-server binaries
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
