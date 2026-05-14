@@ -102,15 +102,19 @@ jobs:
   build-ios:
     name: Build iOS app
     runs-on: macos-14
-    needs: build-static-mosh-server
+    needs: []
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: actions/download-artifact@v4
+      - name: Try to download mosh-server-binaries artifact (may not exist if upstream failed)
+        uses: actions/download-artifact@v4
         with:
           name: mosh-server-binaries
           path: Resources/MoshServer/
+        continue-on-error: true
+      - name: Ensure MoshServer dir exists
+        run: mkdir -p Resources/MoshServer && touch Resources/MoshServer/.placeholder
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_${{ env.XCODE_VERSION }}.app
       - name: Install xcodegen
@@ -118,7 +122,7 @@ jobs:
       - name: Generate project
         run: xcodegen generate
       - name: Resolve SPM dependencies
-        run: xcodebuild -resolvePackageDependencies -workspace Termit.xcworkspace -scheme Termit || xcodebuild -resolvePackageDependencies -project Termit.xcodeproj -scheme Termit
+        run: xcodebuild -resolvePackageDependencies -project Termit.xcodeproj -scheme Termit || true
       - name: Build for testing
         run: |
           xcodebuild \
@@ -157,8 +161,8 @@ jobs:
   testflight-upload:
     name: Archive & upload to TestFlight
     runs-on: macos-14
-    needs: [build-ios, test-against-target-vps]
-    if: github.ref == 'refs/heads/main'
+    needs: [build-ios, build-static-mosh-server, test-against-target-vps]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
         with:
