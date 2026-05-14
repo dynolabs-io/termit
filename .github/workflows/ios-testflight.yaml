@@ -7,6 +7,8 @@ on:
       - 'Sources/**'
       - 'Tests/**'
       - 'Resources/**'
+      - 'Tools/**'
+      - 'fastlane/**'
       - 'project.yml'
       - '.github/workflows/ios-testflight.yaml'
   workflow_dispatch:
